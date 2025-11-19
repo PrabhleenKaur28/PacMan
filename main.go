@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"math/rand"
 )
 
 func initialise() {
@@ -46,7 +47,9 @@ func loadMaze(file string) error {
 		for col, ch := range line {
 			switch ch {
 			case 'P':
-				player = sprite{row, col}				
+				player = sprite{row, col}	
+			case 'G':
+				ghosts = append(ghosts, &sprite{row, col} )				
 			}
 		}
 	}
@@ -69,6 +72,11 @@ func printMaze() {
 
 	MoveCursor(player.row, player.col)
 	fmt.Print("P")
+
+	for _, ghost := range ghosts {
+		MoveCursor(ghost.row, ghost.col)
+		fmt.Print("G")
+	}
 
 	MoveCursor(len(maze) + 1, 0) // moving cursor outside maze
 }
@@ -134,6 +142,24 @@ func movePlayer(direction string) {
 	player.row, player.col = makeMove(player.row, player.col, direction)
 }
 
+func getRandomDirection() string {
+	direction := rand.Intn(4)
+	move := map[int]string{
+		0: "UP",
+		1: "DOWN",
+		2: "LEFT",
+		3: "RIGHT",
+	}
+	return move[direction] 
+}
+
+func moveGhosts() {
+	for _, ghost := range ghosts {
+		direction := getRandomDirection()
+		ghost.row, ghost.col = makeMove(ghost.row, ghost.col, direction)
+	}
+}
+
 func ClearScreen() {
 	fmt.Print("\x1b[2J")
 	MoveCursor(0, 0)
@@ -184,6 +210,7 @@ type sprite struct{
 	row, col int
 }
 var player sprite
+var ghosts []*sprite
 
 func main() {
 	// initialize game
@@ -209,7 +236,8 @@ func main() {
 			break
 		}
 		movePlayer(input)
-		
+		moveGhosts()
+
 		if input == "ESC" {
 			break
 		}
