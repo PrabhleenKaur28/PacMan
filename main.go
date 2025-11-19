@@ -42,13 +42,35 @@ func loadMaze(file string) error {
 		maze = append(maze, line)
 	}
 
+	for row, line := range maze {
+		for col, ch := range line {
+			switch ch {
+			case 'P':
+				player = sprite{row, col}				
+			}
+		}
+	}
+
 	return nil
 }
 func printMaze() {
 	ClearScreen()
 	for _, line := range maze {
-		fmt.Println(line)
+		for _, ch := range line {
+			switch ch {
+			case '#':
+				fmt.Printf("%c", ch)
+			default:
+				fmt.Print(" ")
+			}
+		}
+		fmt.Println()
 	}
+
+	MoveCursor(player.row, player.col)
+	fmt.Print("P")
+
+	MoveCursor(len(maze) + 1, 0) // moving cursor outside maze
 }
 
 func readInput() (string, error) {
@@ -57,11 +79,59 @@ func readInput() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	log.Printf("Read %d bytes: %v\n", n, buffer[:n])
 	if n == 1 && buffer[0] == 0x1b {
 		return "ESC", nil
+	}else if n >= 3 {
+		if buffer[0] == 0x1b && buffer[1] == '[' {
+			switch buffer[2] {
+			case 'A':
+				return "UP", nil
+			case 'B':
+				return "DOWN", nil
+			case 'C':
+				return "RIGHT", nil
+			case 'D':
+				return "LEFT", nil
+			}
+		}	
 	}
 	return "", nil
+}
+
+func makeMove(oldRow, oldCol int, direction string) (newRow, newCol int) {
+	newRow, newCol = oldRow, oldCol
+
+	switch direction {
+	case "UP":
+		newRow--
+		if newRow < 0{
+			newRow = len(maze)-1
+		}
+	case "DOWN":
+		newRow++
+		if newRow == len(maze){
+			newRow = 0
+		}
+	case "LEFT":
+		newCol--
+		if newCol < 0{
+			newCol = len(maze[0])-1
+		}
+	case "RIGHT":
+		newCol++
+		if newCol == len(maze[0]){
+			newCol = 0
+		}		
+	}
+
+	if maze[newRow][newCol] == '#' { // wall (collision)
+		newRow, newCol = oldRow, oldCol
+	}
+	return
+}
+
+func movePlayer(direction string) {
+	player.row, player.col = makeMove(player.row, player.col, direction)
 }
 
 func ClearScreen() {
@@ -110,6 +180,11 @@ func WithBackground(text string, color Color) string {
 	return WithBlueBackground(text)
 }
 
+type sprite struct{
+	row, col int
+}
+var player sprite
+
 func main() {
 	// initialize game
 	initialise()
@@ -133,8 +208,9 @@ func main() {
 			log.Println("Error reading input:", err)
 			break
 		}
+		movePlayer(input)
+		
 		if input == "ESC" {
-			log.Println("HELLOOO")
 			break
 		}
 
