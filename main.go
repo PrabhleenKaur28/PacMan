@@ -4,9 +4,9 @@ import (
 	"bufio"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"os/exec"
-	"math/rand"
 )
 
 func initialise() {
@@ -29,6 +29,17 @@ func cleanup() {
 
 var maze []string
 
+type sprite struct {
+	row, col int
+}
+
+var player sprite
+var ghosts []*sprite
+
+var score int
+var numDots int
+var lives = 1
+
 func loadMaze(file string) error {
 	f, err := os.Open(file)
 	if err != nil {
@@ -47,21 +58,33 @@ func loadMaze(file string) error {
 		for col, ch := range line {
 			switch ch {
 			case 'P':
-				player = sprite{row, col}	
+				player = sprite{row, col}
 			case 'G':
-				ghosts = append(ghosts, &sprite{row, col} )				
+				ghosts = append(ghosts, &sprite{row, col})
+			case '.':
+				numDots++
 			}
 		}
 	}
 
 	return nil
 }
+
+func MoveCursor(row, col int) {
+	fmt.Printf("\x1b[%d;%df", row+1, col+1)
+}
+
+func ClearScreen() {
+	fmt.Print("\x1b[2J")
+	MoveCursor(0, 0)
+}
+
 func printMaze() {
 	ClearScreen()
 	for _, line := range maze {
 		for _, ch := range line {
 			switch ch {
-			case '#':
+			case '#', '.':
 				fmt.Printf("%c", ch)
 			default:
 				fmt.Print(" ")
@@ -78,7 +101,8 @@ func printMaze() {
 		fmt.Print("G")
 	}
 
-	MoveCursor(len(maze) + 1, 0) // moving cursor outside maze
+	MoveCursor(len(maze)+1, 0) // moving cursor outside maze
+	fmt.Println("Score: ", score, "\tLives: ", lives)
 }
 
 func readInput() (string, error) {
@@ -89,7 +113,7 @@ func readInput() (string, error) {
 	}
 	if n == 1 && buffer[0] == 0x1b {
 		return "ESC", nil
-	}else if n >= 3 {
+	} else if n >= 3 { //arrow key escape sequence is 3 bytes
 		if buffer[0] == 0x1b && buffer[1] == '[' {
 			switch buffer[2] {
 			case 'A':
@@ -101,7 +125,7 @@ func readInput() (string, error) {
 			case 'D':
 				return "LEFT", nil
 			}
-		}	
+		}
 	}
 	return "", nil
 }
@@ -112,24 +136,24 @@ func makeMove(oldRow, oldCol int, direction string) (newRow, newCol int) {
 	switch direction {
 	case "UP":
 		newRow--
-		if newRow < 0{
-			newRow = len(maze)-1
+		if newRow < 0 {
+			newRow = len(maze) - 1
 		}
 	case "DOWN":
 		newRow++
-		if newRow == len(maze){
+		if newRow == len(maze) {
 			newRow = 0
 		}
 	case "LEFT":
 		newCol--
-		if newCol < 0{
-			newCol = len(maze[0])-1
+		if newCol < 0 {
+			newCol = len(maze[0]) - 1
 		}
 	case "RIGHT":
 		newCol++
-		if newCol == len(maze[0]){
+		if newCol == len(maze[0]) {
 			newCol = 0
-		}		
+		}
 	}
 
 	if maze[newRow][newCol] == '#' { // wall (collision)
@@ -140,6 +164,13 @@ func makeMove(oldRow, oldCol int, direction string) (newRow, newCol int) {
 
 func movePlayer(direction string) {
 	player.row, player.col = makeMove(player.row, player.col, direction)
+
+	switch maze[player.row][player.col] {
+	case '.':
+		score++
+		numDots--
+		maze[player.row] = maze[player.row][:player.col] + " " + maze[player.row][player.col+1:]
+	}
 }
 
 func getRandomDirection() string {
@@ -150,7 +181,7 @@ func getRandomDirection() string {
 		2: "LEFT",
 		3: "RIGHT",
 	}
-	return move[direction] 
+	return move[direction]
 }
 
 func moveGhosts() {
@@ -158,15 +189,6 @@ func moveGhosts() {
 		direction := getRandomDirection()
 		ghost.row, ghost.col = makeMove(ghost.row, ghost.col, direction)
 	}
-}
-
-func ClearScreen() {
-	fmt.Print("\x1b[2J")
-	MoveCursor(0, 0)
-}
-
-func MoveCursor(row, col int) {
-	fmt.Printf("\x1b[%d;%df", row+1, col+1)
 }
 
 const reset = "\x1b[0m"
@@ -206,12 +228,6 @@ func WithBackground(text string, color Color) string {
 	return WithBlueBackground(text)
 }
 
-type sprite struct{
-	row, col int
-}
-var player sprite
-var ghosts []*sprite
-
 func main() {
 	// initialize game
 	initialise()
@@ -245,8 +261,17 @@ func main() {
 		// process movement
 
 		// process collisions
+		for _, ghost := range ghosts {
+			if ghost.row == player.row && ghost.col == player.col {
+				lives = 0
+				fmt.Println("Game Over!")
+			}
+		}
 
 		// check game over
+		if input == "ESC" || lives <= 0 || numDots == 0 {
+			break
+		}
 
 		// break infinite loop
 
