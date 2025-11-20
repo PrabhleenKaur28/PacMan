@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"os/exec"
+	"time"
 )
 
 func initialise() {
@@ -240,25 +241,32 @@ func main() {
 		return
 	}
 
+	//process input (async)
+	input := make(chan string)
+	go func(ch chan<- string) {
+		for {
+			input, err := readInput()
+			if err != nil {
+				log.Println("Error reading input:", err)
+				ch <- "ESC"
+			}
+			ch <- input
+		}
+	}(input)
+
 	// game loop
 	for {
-		// update screen
-		printMaze()
-
-		// process input
-		input, err := readInput()
-		if err != nil {
-			log.Println("Error reading input:", err)
-			break
-		}
-		movePlayer(input)
-		moveGhosts()
-
-		if input == "ESC" {
-			break
-		}
-
 		// process movement
+		select {
+		case c := <-input:
+			if c == "ESC" {
+				lives = 0
+			}
+			movePlayer(c)
+		default:
+		}
+
+		moveGhosts()
 
 		// process collisions
 		for _, ghost := range ghosts {
@@ -268,13 +276,17 @@ func main() {
 			}
 		}
 
+		// update screen
+		printMaze()
+
 		// check game over
-		if input == "ESC" || lives <= 0 || numDots == 0 {
+		if lives <= 0 || numDots == 0 {
 			break
 		}
 
 		// break infinite loop
 
 		// repeat
+		time.Sleep(200 * time.Millisecond)
 	}
 }
