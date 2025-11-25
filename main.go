@@ -2,12 +2,16 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"time"
+
+	"github.com/manifoldco/promptui"
 )
 
 func initialise() {
@@ -31,7 +35,8 @@ func cleanup() {
 var maze []string
 
 type sprite struct {
-	row, col int
+	row, col           int
+	startRow, startCol int
 }
 
 var player sprite
@@ -39,10 +44,27 @@ var ghosts []*sprite
 
 var score int
 var numDots int
-var lives = 1
+var lives = 3
+
+type Config struct {
+	Player   string `json:"player"`
+	Ghost    string `json:"ghost"`
+	Wall     string `json:"wall"`
+	Dot      string `json:"dot"`
+	Pill     string `json:"pill"`
+	Death    string `json:"death"`
+	Space    string `json:"space"`
+	UseEmoji bool   `json:"use_emoji"`
+}
+
+var cfg Config
+
+const dataDir = "/usr/share/pacman"
 
 func loadMaze(file string) error {
-	f, err := os.Open(file)
+	path := filepath.Join(dataDir, file)
+
+	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
@@ -59,9 +81,9 @@ func loadMaze(file string) error {
 		for col, ch := range line {
 			switch ch {
 			case 'P':
-				player = sprite{row, col}
+				player = sprite{row, col, row, col}
 			case 'G':
-				ghosts = append(ghosts, &sprite{row, col})
+				ghosts = append(ghosts, &sprite{row, col, row, col})
 			case '.':
 				numDots++
 			}
@@ -71,8 +93,34 @@ func loadMaze(file string) error {
 	return nil
 }
 
+func loadConfig(file string) error {
+	path := filepath.Join(dataDir, file)
+
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	decoder := json.NewDecoder(f)
+	err = decoder.Decode(&cfg)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func MoveCursor(row, col int) {
 	fmt.Printf("\x1b[%d;%df", row+1, col+1)
+}
+
+func moveCursor(row, col int) {
+	if cfg.UseEmoji {
+		MoveCursor(row, col*2)
+	} else {
+		MoveCursor(row, col)
+	}
 }
 
 func ClearScreen() {
@@ -83,27 +131,31 @@ func ClearScreen() {
 func printMaze() {
 	ClearScreen()
 	for _, line := range maze {
-		for _, ch := range line {
-			switch ch {
-			case '#', '.':
-				fmt.Printf("%c", ch)
+		for _, chr := range line {
+			switch chr {
+			case '#':
+				fmt.Print(WithBackground(cfg.Wall, CYAN))
+			case '.':
+				fmt.Print(cfg.Dot)
+			case 'X':
+				fmt.Print(cfg.Pill)
 			default:
-				fmt.Print(" ")
+				fmt.Print(cfg.Space)
 			}
 		}
 		fmt.Println()
 	}
 
-	MoveCursor(player.row, player.col)
-	fmt.Print("P")
+	moveCursor(player.row, player.col)
+	fmt.Print(cfg.Player)
 
-	for _, ghost := range ghosts {
-		MoveCursor(ghost.row, ghost.col)
-		fmt.Print("G")
+	for _, g := range ghosts {
+		moveCursor(g.row, g.col)
+		fmt.Print(cfg.Ghost)
 	}
 
-	MoveCursor(len(maze)+1, 0) // moving cursor outside maze
-	fmt.Println("Score: ", score, "\tLives: ", lives)
+	moveCursor(len(maze)+1, 0)
+	fmt.Println("Score:", score, "\tLives:", lives)
 }
 
 func readInput() (string, error) {
@@ -163,14 +215,21 @@ func makeMove(oldRow, oldCol int, direction string) (newRow, newCol int) {
 	return
 }
 
-func movePlayer(direction string) {
-	player.row, player.col = makeMove(player.row, player.col, direction)
+func movePlayer(dir string) {
+	player.row, player.col = makeMove(player.row, player.col, dir)
+
+	removeDot := func(row, col int) {
+		maze[row] = maze[row][0:col] + " " + maze[row][col+1:]
+	}
 
 	switch maze[player.row][player.col] {
 	case '.':
-		score++
 		numDots--
-		maze[player.row] = maze[player.row][:player.col] + " " + maze[player.row][player.col+1:]
+		score++
+		removeDot(player.row, player.col)
+	case 'X':
+		score += 10
+		removeDot(player.row, player.col)
 	}
 }
 
@@ -235,9 +294,23 @@ func main() {
 	defer cleanup()
 
 	// load resources
-	err := loadMaze("maze1.txt")
+	var prompt = promptui.Select{
+		Label: "Choose Level",
+		Items: []string{"Easy", "Medium", "Hard"},
+	}
+	_, result, _ := prompt.Run()
+
+	mazeFile := map[string]string{
+		"Easy":   "maze1.txt",
+		"Medium": "maze2.txt",
+		"Hard":   "maze3.txt",
+	}[result]
+
+	loadMaze(mazeFile)
+
+	err := loadConfig("emojis.json")
 	if err != nil {
-		log.Println("Failed to load maze:", err)
+		log.Println("failed to load configuration:", err)
 		return
 	}
 
@@ -245,12 +318,12 @@ func main() {
 	input := make(chan string)
 	go func(ch chan<- string) {
 		for {
-			input, err := readInput()
+			inp, err := readInput()
 			if err != nil {
 				log.Println("Error reading input:", err)
 				ch <- "ESC"
 			}
-			ch <- input
+			ch <- inp
 		}
 	}(input)
 
@@ -271,8 +344,8 @@ func main() {
 		// process collisions
 		for _, ghost := range ghosts {
 			if ghost.row == player.row && ghost.col == player.col {
-				lives = 0
-				fmt.Println("Game Over!")
+				lives--
+				player.row, player.col = player.startRow, player.startCol
 			}
 		}
 
@@ -280,11 +353,19 @@ func main() {
 		printMaze()
 
 		// check game over
-		if lives <= 0 || numDots == 0 {
+		// check game over
+		if numDots == 0 || lives == 0 {
+			if lives == 0 {
+				moveCursor(player.row, player.col)
+				fmt.Print(cfg.Death)
+				moveCursor(len(maze)+2, 0)
+				fmt.Println("Game Over! You lost all your lives!")
+			} else {
+				moveCursor(len(maze)+2, 0)
+				fmt.Println("Congratulations! You collected all the dots!")
+			}
 			break
 		}
-
-		// break infinite loop
 
 		// repeat
 		time.Sleep(200 * time.Millisecond)
