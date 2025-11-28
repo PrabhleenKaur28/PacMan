@@ -32,13 +32,12 @@ func cleanup() {
 	}
 }
 
-var maze []string
-
 type sprite struct {
 	row, col           int
 	startRow, startCol int
 }
 
+var maze []string
 var player sprite
 var ghosts []*sprite
 
@@ -60,6 +59,24 @@ type Config struct {
 var cfg Config
 
 const dataDir = "/usr/share/pacman"
+
+func loadConfig(file string) error {
+	path := filepath.Join(dataDir, file)
+
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	decoder := json.NewDecoder(f)
+	err = decoder.Decode(&cfg)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
 
 func loadMaze(file string) error {
 	path := filepath.Join(dataDir, file)
@@ -93,24 +110,6 @@ func loadMaze(file string) error {
 	return nil
 }
 
-func loadConfig(file string) error {
-	path := filepath.Join(dataDir, file)
-
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	decoder := json.NewDecoder(f)
-	err = decoder.Decode(&cfg)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 func MoveCursor(row, col int) {
 	fmt.Printf("\x1b[%d;%df", row+1, col+1)
 }
@@ -121,6 +120,43 @@ func moveCursor(row, col int) {
 	} else {
 		MoveCursor(row, col)
 	}
+}
+
+const reset = "\x1b[0m"
+
+type Color int
+
+const (
+	BLACK Color = iota
+	RED
+	GREEN
+	BROWN
+	BLUE
+	MAGENTA
+	CYAN
+	GREY
+)
+
+var colors = map[Color]string{
+	BLACK:   "\x1b[1;30;40m", // ANSI escape code for black background
+	RED:     "\x1b[1;31;41m", //bold red text on red background
+	GREEN:   "\x1b[1;32;42m",
+	BROWN:   "\x1b[1;33;43m",
+	BLUE:    "\x1b[1;34;44m",
+	MAGENTA: "\x1b[1;35;45m",
+	CYAN:    "\x1b[1;36;46m",
+	GREY:    "\x1b[1;37;47m",
+}
+
+func WithBlueBackground(text string) string {
+	return "\x1b[44m" + text + reset
+}
+
+func WithBackground(text string, color Color) string {
+	if c, ok := colors[color]; ok {
+		return c + text + reset
+	}
+	return WithBlueBackground(text)
 }
 
 func ClearScreen() {
@@ -145,17 +181,32 @@ func printMaze() {
 		}
 		fmt.Println()
 	}
+}
 
-	moveCursor(player.row, player.col)
-	fmt.Print(cfg.Player)
-
-	for _, g := range ghosts {
-		moveCursor(g.row, g.col)
-		fmt.Print(cfg.Ghost)
+func eraseSprite(row, col int) {
+	moveCursor(row, col)
+	chr := rune(maze[row][col])
+	switch chr {
+	case '#':
+		fmt.Print(WithBackground(cfg.Wall, CYAN))
+	case '.':
+		fmt.Print(cfg.Dot)
+	case 'X':
+		fmt.Print(cfg.Pill)
+	default:
+		fmt.Print(cfg.Space)
 	}
+}
 
+func drawSprite(row, col int, sprite string) {
+	moveCursor(row, col)
+	fmt.Print(sprite)
+}
+
+func updateStatus() {
 	moveCursor(len(maze)+1, 0)
-	fmt.Println("Score:", score, "\tLives:", lives)
+	fmt.Print("\x1b[K") // Clear the line
+	fmt.Print("Score:", score, "\tLives:", lives)
 }
 
 func readInput() (string, error) {
@@ -216,7 +267,13 @@ func makeMove(oldRow, oldCol int, direction string) (newRow, newCol int) {
 }
 
 func movePlayer(dir string) {
+	oldRow, oldCol := player.row, player.col
 	player.row, player.col = makeMove(player.row, player.col, dir)
+
+	if oldRow != player.row || oldCol != player.col {
+		eraseSprite(oldRow, oldCol)
+		drawSprite(player.row, player.col, cfg.Player)
+	}
 
 	removeDot := func(row, col int) {
 		maze[row] = maze[row][0:col] + " " + maze[row][col+1:]
@@ -227,9 +284,11 @@ func movePlayer(dir string) {
 		numDots--
 		score++
 		removeDot(player.row, player.col)
+		updateStatus()
 	case 'X':
 		score += 10
 		removeDot(player.row, player.col)
+		updateStatus()
 	}
 }
 
@@ -245,47 +304,27 @@ func getRandomDirection() string {
 }
 
 func moveGhosts() {
+	type position struct {
+		row, col int
+	}
+	oldPositions := make([]position, len(ghosts))
+
+	for i, ghost := range ghosts {
+		oldPositions[i] = position{ghost.row, ghost.col}
+		ghost.row, ghost.col = makeMove(ghost.row, ghost.col, getRandomDirection())
+	}
+
+	for i, ghost := range ghosts {
+		if oldPositions[i].row != ghost.row || oldPositions[i].col != ghost.col {
+			eraseSprite(oldPositions[i].row, oldPositions[i].col)
+		}
+	}
+
 	for _, ghost := range ghosts {
-		direction := getRandomDirection()
-		ghost.row, ghost.col = makeMove(ghost.row, ghost.col, direction)
+		drawSprite(ghost.row, ghost.col, cfg.Ghost)
 	}
-}
 
-const reset = "\x1b[0m"
-
-type Color int
-
-const (
-	BLACK Color = iota
-	RED
-	GREEN
-	BROWN
-	BLUE
-	MAGENTA
-	CYAN
-	GREY
-)
-
-var colors = map[Color]string{
-	BLACK:   "\x1b[1;30;40m", // ANSI escape code for black background
-	RED:     "\x1b[1;31;41m", //bold red text on red background
-	GREEN:   "\x1b[1;32;42m",
-	BROWN:   "\x1b[1;33;43m",
-	BLUE:    "\x1b[1;34;44m",
-	MAGENTA: "\x1b[1;35;45m",
-	CYAN:    "\x1b[1;36;46m",
-	GREY:    "\x1b[1;37;47m",
-}
-
-func WithBlueBackground(text string) string {
-	return "\x1b[44m" + text + reset
-}
-
-func WithBackground(text string, color Color) string {
-	if c, ok := colors[color]; ok {
-		return c + text + reset
-	}
-	return WithBlueBackground(text)
+	moveCursor(len(maze)+2, 0)
 }
 
 func main() {
@@ -313,6 +352,13 @@ func main() {
 		log.Println("failed to load configuration:", err)
 		return
 	}
+
+	printMaze()
+	drawSprite(player.row, player.col, cfg.Player)
+	for _, g := range ghosts {
+		drawSprite(g.row, g.col, cfg.Ghost)
+	}
+	updateStatus()
 
 	//process input (async)
 	input := make(chan string)
@@ -345,29 +391,27 @@ func main() {
 		for _, ghost := range ghosts {
 			if ghost.row == player.row && ghost.col == player.col {
 				lives--
+				eraseSprite(player.row, player.col)
 				player.row, player.col = player.startRow, player.startCol
+				drawSprite(player.row, player.col, cfg.Player)
+				updateStatus()
 			}
 		}
 
-		// update screen
-		printMaze()
-
-		// check game over
-		// check game over
+		// Check game over
 		if numDots == 0 || lives == 0 {
 			if lives == 0 {
 				moveCursor(player.row, player.col)
 				fmt.Print(cfg.Death)
 				moveCursor(len(maze)+2, 0)
-				fmt.Println("Game Over! You lost all your lives!")
+				fmt.Println("GAME OVER!!")
 			} else {
 				moveCursor(len(maze)+2, 0)
-				fmt.Println("Congratulations! You collected all the dots!")
+				fmt.Println("Congratulations! You collected all the coins!!")
 			}
 			break
 		}
 
-		// repeat
 		time.Sleep(200 * time.Millisecond)
 	}
 }
