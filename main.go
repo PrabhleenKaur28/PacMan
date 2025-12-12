@@ -170,7 +170,7 @@ func printMaze() {
 		for _, chr := range line {
 			switch chr {
 			case '#':
-				fmt.Print(WithBackground(cfg.Wall, CYAN))
+				fmt.Print(WithBackground(cfg.Wall, BLUE))
 			case '.':
 				fmt.Print(cfg.Dot)
 			case 'X':
