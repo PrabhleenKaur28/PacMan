@@ -1,0 +1,16 @@
+# Ignore Go build outputs
+*.exe
+*.out
+*.o
+
+# Ignore archives
+*.tar.gz
+*.rpm
+*.deb
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore vendor if you want Go modules to handle dependencies
+vendor/
