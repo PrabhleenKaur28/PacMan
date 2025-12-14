@@ -60,37 +60,51 @@ type Config struct {
 
 var cfg Config
 
-const dataDir = "/usr/share/pacman"
+const dataDir = "/usr/share/t-pac"
 
 func loadConfig(file string) error {
-	path := filepath.Join(dataDir, file)
-
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	decoder := json.NewDecoder(f)
-	err = decoder.Decode(&cfg)
-	if err != nil {
-		return err
+	paths := []string{
+		filepath.Join("/usr/share/t-pac", file),
+		file,
 	}
 
-	return nil
+	for _, path := range paths {
+		f, err := os.Open(path)
+		if err == nil {
+			defer f.Close()
+			decoder := json.NewDecoder(f)
+			return decoder.Decode(&cfg)
+		}
+	}
+
+	return fmt.Errorf("could not load %s from any known location", file)
 }
 
 func loadMaze(file string) error {
-	path := filepath.Join(dataDir, file)
+	paths := []string{
+		filepath.Join("/usr/share/t-pac", file),
+		file, // local dev fallback
+	}
 
-	f, err := os.Open(path)
-	if err != nil {
-		return err
+	var f *os.File
+	var err error
+
+	for _, path := range paths {
+		f, err = os.Open(path)
+		if err == nil {
+			break
+		}
+	}
+	if f == nil {
+		return fmt.Errorf("could not load maze file %s", file)
 	}
 	defer f.Close()
 
 	scanner := bufio.NewScanner(f)
 	maze = nil
+	numDots = 0
+	ghosts = nil
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		maze = append(maze, line)
